@@ -1,3 +1,4 @@
+.env
 copied_notebooks/
 .DS_Store
 .gitignore.swp
