@@ -5,6 +5,7 @@ import re
 import json
 import shutil
 import logging
+import argparse
 from pathlib import Path
 
 # Setup logging
@@ -56,13 +57,13 @@ def initialize_gemini():
         logger.info("Successfully loaded modern 'google-genai' SDK.")
         client = genai.Client(api_key=api_key)
         
-        def generate_with_modern(image_bytes, prompt):
+        def generate_with_modern(data_bytes, mime_type, prompt):
             response = client.models.generate_content(
                 model=model_name,
                 contents=[
                     types.Part.from_bytes(
-                        data=image_bytes,
-                        mime_type="image/png",
+                        data=data_bytes,
+                        mime_type=mime_type,
                     ),
                     prompt
                 ]
@@ -83,16 +84,26 @@ def initialize_gemini():
         genai_legacy.configure(api_key=api_key)
         model = genai_legacy.GenerativeModel(model_name)
         
-        def generate_with_legacy(image_bytes, prompt):
-            image = Image.open(io.BytesIO(image_bytes))
-            response = model.generate_content([image, prompt])
-            return response.text
+        def generate_with_legacy(data_bytes, mime_type, prompt):
+            if mime_type == "application/pdf":
+                response = model.generate_content([
+                    {
+                        "mime_type": "application/pdf",
+                        "data": data_bytes
+                    },
+                    prompt
+                ])
+                return response.text
+            else:
+                image = Image.open(io.BytesIO(data_bytes))
+                response = model.generate_content([image, prompt])
+                return response.text
             
         return generate_with_legacy
 
     except ImportError:
         logger.error("No compatible Gemini SDK found in python environment.")
-        logger.error("Please run: pip install google-genai python-dotenv pillow")
+        logger.error("Please run: pip install google-genai python-dotenv pillow pypdf")
         sys.exit(1)
 
 def sanitize_filename(name: str) -> str:
@@ -154,7 +165,26 @@ def save_registry(registry: dict):
     except Exception as e:
         logger.error(f"Error saving registry: {e}")
 
-def run_pipeline():
+def extract_pdf_page_one_bytes(pdf_path: Path) -> bytes:
+    """
+    Extracts page 1 of the PDF and returns its bytes.
+    Uses pypdf for a pure-Python, zero-system-dependency approach.
+    """
+    from pypdf import PdfReader, PdfWriter
+    import io
+    
+    reader = PdfReader(pdf_path)
+    if not reader.pages:
+        raise ValueError(f"The PDF {pdf_path} has no pages.")
+        
+    writer = PdfWriter()
+    writer.add_page(reader.pages[0])
+    
+    out_buf = io.BytesIO()
+    writer.write(out_buf)
+    return out_buf.getvalue()
+
+def run_pipeline(force_reprocess=False):
     logger.info("Starting Kindle Scribe Vision Renaming Pipeline...")
     
     # Ensure target directory exists
@@ -176,18 +206,34 @@ def run_pipeline():
     # Load registry
     registry = load_registry()
     
+    # If force_reprocess is specified, reset processed status and extracted titles
+    # unless a user override is present.
+    if force_reprocess:
+        logger.info("Force-reprocess requested. Resetting extracted titles for all notebooks (preserving user overrides)...")
+        for uuid, entry in registry.items():
+            if not entry.get("user_override"):
+                entry["extracted_title"] = None
+                entry["sanitized_title"] = None
+                entry["status"] = "pending"
+    
     # Initialize Gemini Client (lazy load, only if we need to call the API)
     generate_content_fn = None
     
     # Prompt for Vision AI
     extraction_prompt = (
-        "Analyze the first page of this handwritten notebook (which is a Kindle Scribe thumbnail) and extract the main title or the first line of written text.\n"
-        "Guidelines:\n"
-        "- Identify the main title or the first line of written text on the page.\n"
-        "- Return ONLY the exact title/text (max 5-6 words) as plain text.\n"
-        "- Do NOT include any introductory, explanatory, or concluding text (e.g., do not say 'The title is...', do not use quotation marks, do not write 'Here is the title').\n"
-        "- If the page is blank, has no legible handwriting, or only has random drawings/scribbles with no words, return 'Untitled'.\n"
-        "- Print only the plain text title."
+        "Analyze this Kindle Scribe notebook cover/first page (handwritten) and extract its title.\n\n"
+        "JOURNAL DETECTION & UNIFORMITY RULES:\n"
+        "- Look closely at the top of the page for any date (e.g., '22.9.2026', '27.9 Morning', 'September 22').\n"
+        "- Check if the page is a personal journal, diary entry, daily log, or contains phrases like 'Daily Journal', 'Journal', or just a prominent date with lists like 'Top 3', 'Bad', 'Grateful for'.\n"
+        "- If a date is found on a journal page, format the title uniformly as:\n"
+        "  'Daily Journal DD.MM.YYYY' (e.g., 'Daily Journal 22.09.2026' or 'Daily Journal 27.09.2026').\n"
+        "  Ensure the date is converted to DD.MM.YYYY or D.M.YYYY if year is missing, defaulting to the year 2026 if not specified but context matches (e.g. '22.9.2026' -> 'Daily Journal 22.09.2026').\n"
+        "  If there's an additional time/qualifier like 'Morning' or 'Evening', append it, e.g. 'Daily Journal 27.09.2026 Morning'.\n\n"
+        "GENERAL TITLE RULES:\n"
+        "- If it is NOT a journal, identify the main handwritten heading, title, or first line of text.\n"
+        "- Return ONLY the sanitized plain text title (max 5-6 words). No intro/outro, no quotation marks, no markdown.\n"
+        "- If the page is completely blank or has no readable text, return 'Untitled'.\n\n"
+        "Output format: Return ONLY the final title as a single line of text."
     )
     
     # Keep track of changes
@@ -213,24 +259,22 @@ def run_pipeline():
         
         # 1. Determine Title (API Call if needed)
         if not entry["extracted_title"]:
-            thumbnail_path = THUMBNAIL_DIR / f"{uuid}.png"
-            if not thumbnail_path.exists():
-                logger.warning(f"No thumbnail found for {uuid} at {thumbnail_path}. Using fallback.")
+            if not pdf_path.exists():
+                logger.warning(f"No PDF found for {uuid} at {pdf_path}. Using fallback.")
                 entry["extracted_title"] = "Untitled"
                 entry["sanitized_title"] = "Untitled"
                 entry["status"] = "untitled_fallback"
                 any_changes = True
             else:
-                # We have a thumbnail! Let's query Vision AI
+                # We have the PDF! Let's query Vision AI with Page 1
                 if generate_content_fn is None:
                     generate_content_fn = initialize_gemini()
                     
-                logger.info(f"Extracting handwritten title using Gemini for {uuid}...")
+                logger.info(f"Extracting handwritten title using Gemini for {uuid} (from PDF Page 1)...")
                 try:
-                    with open(thumbnail_path, "rb") as img_file:
-                        img_bytes = img_file.read()
+                    pdf_page_bytes = extract_pdf_page_one_bytes(pdf_path)
                     
-                    raw_title = generate_content_fn(img_bytes, extraction_prompt)
+                    raw_title = generate_content_fn(pdf_page_bytes, "application/pdf", extraction_prompt)
                     extracted_title = raw_title.strip()
                     sanitized_title = sanitize_filename(extracted_title)
                     
@@ -312,8 +356,16 @@ def run_pipeline():
     logger.info("Kindle Scribe Vision Renaming Pipeline complete!")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Kindle Scribe Intelligent Renaming Pipeline (Vision AI)")
+    parser.add_argument(
+        "-f", "--force", 
+        action="store_true", 
+        help="Force-reprocess and rebuild all titles via Vision AI (preserving user overrides)"
+    )
+    args = parser.parse_args()
+
     try:
-        run_pipeline()
+        run_pipeline(force_reprocess=args.force)
     except KeyboardInterrupt:
         logger.info("\nPipeline execution cancelled by user.")
         sys.exit(0)
