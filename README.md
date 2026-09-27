@@ -127,3 +127,57 @@ Now, run the conversion script! You can specify a version name or backup label a
   - Make sure your Kindle is unlocked and showing the home screen.
   - Make sure you are using a data-transfer USB-C cable, not just a charging-only cable.
   - Close any other applications (like Calibre or smart-sync utilities) that might be attempting to communicate with the Kindle.
+
+---
+
+## Step 7: Automated Intelligent Renaming (using Vision AI) 🤖✍️
+
+Kindle Scribe exports notebooks using unique UUIDs (e.g., `0c2e722d-29ef-4279-bbb0-f3a001c5b693.pdf`), which makes them hard to identify. This repository includes an intelligent renaming pipeline that uses **Gemini Vision AI** to read your handwritten titles from the notebook thumbnails and automatically rename the PDFs in a non-destructive manner.
+
+### How it works
+1. **Source Tracking**: Reads converted UUID PDFs from `converted_notebooks/`.
+2. **First-page Analysis**: Looks at the corresponding thumbnail image in `original_notebooks/.notebooks/thumbnails/` (where the Kindle Scribe saves a PNG of the first page).
+3. **Vision OCR**: Submits the thumbnail to Gemini Vision AI, extracting the handwritten notebook title.
+4. **Non-destructive Operation**: Creates copies of your PDFs inside the `copied_notebooks/` folder and renames them to match the extracted title.
+5. **Interactive Mapping (`notebook_renames.json`)**: Saves all extracted titles to a human-editable mapping file. If a title is misread, you can manually override it in the JSON file under `"user_override"` and rerun the script to update the filenames instantly!
+
+### Quick Start
+1. **Install Python dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Configure your API Key**:
+   Create a file named `.env` in the root of the project and add your Gemini API key:
+   ```env
+   GEMINI_API_KEY="your-api-key-here"
+   ```
+3. **Make the script executable**:
+   ```bash
+   chmod +x rename_notebooks.py
+   ```
+4. **Run the script**:
+   ```bash
+   python3 rename_notebooks.py
+   ```
+
+### Customizing and Adjusting Titles
+The first time you run `rename_notebooks.py`, it generates a `notebook_renames.json` file in the project root:
+```json
+{
+  "0c2e722d-29ef-4279-bbb0-f3a001c5b693": {
+    "original_filename": "0c2e722d-29ef-4279-bbb0-f3a001c5b693.pdf",
+    "extracted_title": "My Scribe Notebook",
+    "sanitized_title": "My Scribe Notebook",
+    "user_override": null,
+    "current_filename": "My Scribe Notebook.pdf",
+    "status": "processed"
+  }
+}
+```
+
+If you want to manually adjust a notebook's name:
+1. Open `notebook_renames.json`.
+2. Find the notebook's entry and change `"user_override": null` to your desired name, e.g., `"user_override": "Custom Math Notes"`.
+3. Save the JSON file.
+4. Rerun the script (`python3 rename_notebooks.py`). The script will immediately find the existing PDF, rename it to `"Custom Math Notes.pdf"`, and update `"current_filename"`.
+
