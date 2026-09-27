@@ -206,15 +206,28 @@ def run_pipeline(force_reprocess=False):
     # Load registry
     registry = load_registry()
     
-    # If force_reprocess is specified, reset processed status and extracted titles
-    # unless a user override is present.
+    # If force_reprocess is specified, clear the target directory and reset entries
     if force_reprocess:
-        logger.info("Force-reprocess requested. Resetting extracted titles for all notebooks (preserving user overrides)...")
+        logger.info(f"Force-reprocess requested. Clearing all files inside '{TARGET_DIR}' for a clean rebuild...")
+        if TARGET_DIR.exists():
+            for item in TARGET_DIR.iterdir():
+                try:
+                    if item.is_file() or item.is_symlink():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                except Exception as e:
+                    logger.error(f"Failed to delete {item} during cleanup: {e}")
+
+        logger.info("Resetting registry entries (preserving user overrides)...")
         for uuid, entry in registry.items():
+            # Reset current filename since the target directory was wiped clean
+            entry["current_filename"] = f"{uuid}.pdf"
             if not entry.get("user_override"):
                 entry["extracted_title"] = None
                 entry["sanitized_title"] = None
                 entry["status"] = "pending"
+        any_changes = True
     
     # Initialize Gemini Client (lazy load, only if we need to call the API)
     generate_content_fn = None

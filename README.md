@@ -181,3 +181,37 @@ If you want to manually adjust a notebook's name:
 3. Save the JSON file.
 4. Rerun the script (`python3 rename_notebooks.py`). The script will immediately find the existing PDF, rename it to `"Custom Math Notes.pdf"`, and update `"current_filename"`.
 
+---
+
+## 🚀 One-Click Automated Pipeline (`run-pipeline.sh`)
+
+For maximum convenience, you can execute the entire end-to-end pipeline (Convert raw notebooks ➡️ Copy PDFs ➡️ Extract titles with Vision AI ➡️ Rename files) in a single command.
+
+### How to Run:
+Make sure the orchestrator script is executable:
+```bash
+chmod +x run-pipeline.sh
+```
+
+Then, run the automated pipeline:
+```bash
+./run-pipeline.sh
+```
+
+This will automatically execute the conversion, load your virtual environment, execute the Gemini Vision AI pipeline, and output the list of beautifully named PDFs in `copied_notebooks/`.
+
+---
+
+## 🔄 Clean Force Re-runs (Preventing Duplicates)
+
+If you ever want to re-run the Vision AI title extraction from scratch (for example, if you updated your prompt templates or want to reset the registry), you can run the renaming script with the force flag:
+
+```bash
+python3 rename_notebooks.py --force
+```
+
+### Safety and Cleanliness Rules:
+- **Automatic Target Wipe**: When `--force` is used, the script will automatically clear all files inside the `copied_notebooks/` directory before rebuilding. This ensures **zero duplicate or name-clash suffix files** (such as `_1.pdf`) are left behind.
+- **Override Preservation**: All of your manual `"user_override"` entries inside `notebook_renames.json` are **fully preserved**. The script will simply rebuild those overridden PDFs with their chosen names cleanly from the source files.
+
+
