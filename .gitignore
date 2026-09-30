@@ -9,3 +9,5 @@ original_notebooks/
 converted_notebooks/
 __pycache__/ 
 notebook_renames.json
+transcribed_notes/
+transcription_registry.json
