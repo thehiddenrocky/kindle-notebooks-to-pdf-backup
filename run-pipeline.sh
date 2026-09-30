@@ -47,13 +47,28 @@ else
     exit 1
 fi
 
+# Step 3: Run the handwritten note transcription script
+echo -e "\n${YELLOW}--- [STAGE 3] Transcribing Handwritten Notes to Markdown with Gemini AI ---${NC}"
+if [ -f "./transcribe_notebooks.py" ]; then
+    $PYTHON_CMD ./transcribe_notebooks.py
+else
+    echo -e "${RED}[ERROR] Transcription script './transcribe_notebooks.py' not found.${NC}"
+    exit 1
+fi
+
 echo -e "\n${GREEN}=======================================================================${NC}"
-echo -e "${GREEN}   PIPELINE COMPLETE: Notebooks converted, copied, and renamed!        ${NC}"
+echo -e "${GREEN}   PIPELINE COMPLETE: Notebooks converted, renamed, and transcribed!    ${NC}"
 echo -e "${GREEN}=======================================================================${NC}"
 
 # Display a count of renamed notebooks in the target folder
 if [ -d "copied_notebooks" ]; then
-    COUNT=$(find copied_notebooks -type f -name "*.pdf" | wc -l | tr -d ' ')
-    echo -e "${GREEN}Total notebooks in 'copied_notebooks/': $COUNT${NC}\n"
-    ls -lh copied_notebooks/
+    COUNT_PDF=$(find copied_notebooks -type f -name "*.pdf" | wc -l | tr -d ' ')
+    echo -e "${GREEN}Total notebooks in 'copied_notebooks/': $COUNT_PDF${NC}"
+fi
+
+# Display a count of transcribed notes in the text folder
+if [ -d "transcribed_notes" ]; then
+    COUNT_TXT=$(find transcribed_notes -type f -name "*.md" | wc -l | tr -d ' ')
+    echo -e "${GREEN}Total transcriptions in 'transcribed_notes/': $COUNT_TXT${NC}\n"
+    ls -lh transcribed_notes/
 fi
