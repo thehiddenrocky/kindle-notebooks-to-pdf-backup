@@ -1,3 +1,5 @@
+transcribed_notes/
+transcription_registry.json
 __pycache__/
 venv/
 notebook_renames.json
